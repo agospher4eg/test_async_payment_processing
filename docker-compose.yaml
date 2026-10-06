@@ -1,0 +1,145 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: payments_postgres
+    restart: unless-stopped
+    hostname: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-payments} -d ${POSTGRES_DB:-payments}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - payments_net
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: payments_rabbitmq
+    restart: unless-stopped
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes:
+      - ./data/rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    networks:
+      - payments_net
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: payments_migrate
+    env_file:
+      - .env.docker
+    environment:
+      APP_NAME: payments_migrate
+    command: alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - payments_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: payments_api
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      APP_NAME: payments_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - payments_net
+
+  publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: payments_publisher
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      APP_NAME: payments_publisher
+    command: python -m app.outbox.publisher
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - payments_net
+
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: payments_consumer
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      APP_NAME: payments_consumer
+    command: faststream run app.consumer.worker:app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - payments_net
+
+  mock-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: payments_mock_webhook
+    restart: unless-stopped
+    environment:
+      MOCK_SUCCESS_RATE: ${MOCK_SUCCESS_RATE:-0.9}
+    command: uvicorn app.mock_webhook:app --host 0.0.0.0 --port 9000
+    ports:
+      - "${MOCK_WEBHOOK_PORT:-9000}:9000"
+    networks:
+      - payments_net
+
+
+networks:
+  payments_net:
+    driver: bridge

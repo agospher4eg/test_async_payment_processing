@@ -1,0 +1,6 @@
+.venv/
+venv/
+data/postgres
+.vscode/
+__pycache__
+data/rabbitmq
