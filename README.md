@@ -86,12 +86,12 @@ curl --location 'http://127.0.0.1:8000/api/v1/payments/cbdb6406-a767-4513-ad3b-d
 
 
 
-## [Publisher](app\outbox\publisher.py)
+## [Publisher](app/outbox/publisher.py)
 Каждые 2 секунды смотрит таблицу outbox и забирает пачку из 100 необработанных сообщений.
 И публикует в очередь payments.new 
 
-## [Consumer](app\consumer\worker.py)
-Подписан на payments.new. Обрабатывает платёж ([в заглушке](app\consumer\processor.py)), отправляет вебхук (я замокал [сервис](app\mock_webhook.py), который отвечает двести в 90% случаев в логах видно что в него уходит), обновляет статус платежа в постгресе.
+## [Consumer](app/consumer/worker.py)
+Подписан на payments.new. Обрабатывает платёж ([в заглушке](app/consumer/processor.py)), отправляет вебхук (я замокал [сервис](app/mock_webhook.py), который отвечает двести в 90% случаев в логах видно что в него уходит), обновляет статус платежа в постгресе.
 
 
 
